@@ -5,13 +5,6 @@ Endpoints
 ---------
 GET  /health
 POST /events/order-confirmed
-
-IMPORTANT — INTENTIONAL BUG (Milestone 1)
-------------------------------------------
-The /events/order-confirmed handler does NOT check whether the event_id
-has already been processed.  Every delivery creates a new shipment row,
-even for duplicate event_ids.  This bug is required for the RetryProof
-demonstration and will be fixed in a later milestone.
 """
 
 import os
@@ -69,17 +62,32 @@ def order_confirmed(event: OrderConfirmedEvent) -> EventResponse:
     """
     Handle an order.confirmed event by creating a shipment record.
 
-    BUG (intentional, Milestone 1): no idempotency check.
-    Duplicate event_ids each create a new shipment row.
+    Idempotent: if the event_id has already been processed the existing
+    shipment row is returned without creating a duplicate.  The uniqueness
+    guarantee is enforced by a UNIQUE constraint on shipments.event_id, so
+    the protection lives in persistent database state and survives separate
+    request handlers and process restarts.
     """
     conn: sqlite3.Connection = get_db(_db_path())
     try:
+        # INSERT OR IGNORE leaves the existing row untouched on a duplicate
+        # event_id; lastrowid is 0 in that case.
         cursor = conn.execute(
-            "INSERT INTO shipments (event_id, order_id) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO shipments (event_id, order_id) VALUES (?, ?)",
             (event.event_id, event.order_id),
         )
         conn.commit()
-        shipment_id: int = cursor.lastrowid  # type: ignore[assignment]
+
+        if cursor.lastrowid:
+            # New insertion — use the just-created row id.
+            shipment_id: int = cursor.lastrowid  # type: ignore[assignment]
+        else:
+            # Duplicate delivery — fetch the id of the original shipment.
+            row = conn.execute(
+                "SELECT id FROM shipments WHERE event_id = ?",
+                (event.event_id,),
+            ).fetchone()
+            shipment_id = row["id"]
     finally:
         conn.close()
 

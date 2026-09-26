@@ -24,10 +24,30 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS shipments (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            event_id   TEXT    NOT NULL,
+            event_id   TEXT    NOT NULL UNIQUE,
             order_id   TEXT    NOT NULL,
             created_at TEXT    NOT NULL DEFAULT (datetime('now'))
         )
         """
     )
+    # Migrate existing databases that were created without the UNIQUE constraint.
+    _migrate_add_event_id_unique(conn)
     conn.commit()
+
+
+def _migrate_add_event_id_unique(conn: sqlite3.Connection) -> None:
+    """
+    Idempotently enforce a UNIQUE index on event_id for databases that were
+    created before the constraint was added to the CREATE TABLE statement.
+
+    SQLite does not support ALTER TABLE … ADD CONSTRAINT, so we use a
+    named unique index instead.  CREATE UNIQUE INDEX IF NOT EXISTS is a
+    no-op when the index already exists, making this safe to call on every
+    startup.
+    """
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_shipments_event_id
+        ON shipments (event_id)
+        """
+    )
