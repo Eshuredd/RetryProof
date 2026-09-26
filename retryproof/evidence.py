@@ -28,18 +28,37 @@ _EVIDENCE_DIR = Path("evidence")
 
 
 def _build_filename(result: dict[str, Any]) -> str:
-    """Return a unique, human-readable evidence filename for *result*."""
+    """Return a collision-safe, human-readable evidence filename."""
     safe_name = result["scenario_name"].replace(" ", "_")
-    # Derive timestamp from the result itself so replaying is consistent.
-    ts_raw: str = result.get("timestamp", datetime.now(timezone.utc).isoformat())
-    # Normalise to compact UTC form: 20241015T143022Z
+
+    ts_raw: str = result.get(
+        "timestamp",
+        datetime.now(timezone.utc).isoformat(),
+    )
+
     try:
         dt = datetime.fromisoformat(ts_raw)
-        ts = dt.strftime("%Y%m%dT%H%M%SZ")
+
+        # Ensure filename timestamp is UTC.
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+
+        # Include microseconds so two runs in the same second don't collide.
+        ts = dt.strftime("%Y%m%dT%H%M%S_%fZ")
+
     except ValueError:
-        ts = ts_raw[:19].replace(":", "").replace("-", "")
+        ts = (
+            ts_raw[:26]
+            .replace(":", "")
+            .replace("-", "")
+            .replace(".", "_")
+        )
+
     verdict = result.get("result", "UNKNOWN")
     sha_prefix = result.get("scenario_sha256", "0" * 64)[:8]
+
     return f"{safe_name}_{ts}_{verdict}_{sha_prefix}.json"
 
 

@@ -786,9 +786,13 @@ class TestEvidenceFilenames:
         assert "test_evidence" in out_path.name
 
     def test_filename_contains_timestamp(self, tmp_path):
-        result = self._make_result("PASS", ts="2024-01-15T14:30:22+00:00")
+        result = self._make_result(
+            "PASS",
+            ts="2024-01-15T14:30:22.123456+00:00",
+        )
         out_path = evidence_mod.write(result, evidence_dir=tmp_path)
-        assert "20240115T143022Z" in out_path.name
+
+        assert "20240115T143022_123456Z" in out_path.name
 
     def test_filename_contains_verdict(self, tmp_path):
         p = evidence_mod.write(self._make_result("PASS"), evidence_dir=tmp_path)
@@ -819,15 +823,22 @@ class TestEvidenceFilenames:
         assert saved1["result"] == "PASS"
         assert saved2["result"] == "FAIL"
 
-    def test_same_run_repeated_produces_same_name(self, tmp_path):
-        """
-        Writing the exact same result dict twice produces the same filename.
-        (The file will be overwritten, but the name is deterministic and stable.)
-        """
-        r = self._make_result("PASS", ts="2024-06-01T09:00:00+00:00")
-        p1 = evidence_mod.write(r, evidence_dir=tmp_path)
-        p2 = evidence_mod.write(r, evidence_dir=tmp_path)
-        assert p1.name == p2.name
+    def test_two_runs_in_same_second_do_not_collide(self, tmp_path):
+        r1 = self._make_result(
+            "PASS",
+            ts="2024-06-01T09:00:00.100000+00:00",
+        )
+        r2 = self._make_result(
+            "PASS",
+            ts="2024-06-01T09:00:00.200000+00:00",
+        )
+
+        p1 = evidence_mod.write(r1, evidence_dir=tmp_path)
+        p2 = evidence_mod.write(r2, evidence_dir=tmp_path)
+
+        assert p1 != p2
+        assert p1.exists()
+        assert p2.exists()
 
     def test_evidence_file_contains_valid_json(self, tmp_path):
         result = self._make_result("PASS")
