@@ -1,0 +1,115 @@
+{
+  "scenario_name": "order_confirmed_idempotency",
+  "scenario_sha256": "107fff38833538a24f0efff61e689ddd599e4bcdacf10cf195630761604e3531",
+  "scenario_path": "scenarios\\order_confirmed.json",
+  "timestamp": "2026-09-26T15:59:06.379901+00:00",
+  "target": "http://localhost:8000",
+  "request": {
+    "method": "POST",
+    "path": "/events/order-confirmed",
+    "expected_status": 201,
+    "body": {
+      "event_id": "evt_rp_001",
+      "event_type": "order.confirmed",
+      "order_id": "order_rp_001"
+    }
+  },
+  "deliveries": 5,
+  "precondition": {
+    "expected_before": 0,
+    "actual_before": 0,
+    "passed": true,
+    "skipped": false
+  },
+  "delivery_log": [
+    {
+      "status_code": 201,
+      "expected_status": 201,
+      "status_ok": true,
+      "body": {
+        "shipment_id": 1,
+        "event_id": "evt_rp_001",
+        "order_id": "order_rp_001"
+      }
+    },
+    {
+      "status_code": 201,
+      "expected_status": 201,
+      "status_ok": true,
+      "body": {
+        "shipment_id": 1,
+        "event_id": "evt_rp_001",
+        "order_id": "order_rp_001"
+      }
+    },
+    {
+      "status_code": 201,
+      "expected_status": 201,
+      "status_ok": true,
+      "body": {
+        "shipment_id": 1,
+        "event_id": "evt_rp_001",
+        "order_id": "order_rp_001"
+      }
+    },
+    {
+      "status_code": 201,
+      "expected_status": 201,
+      "status_ok": true,
+      "body": {
+        "shipment_id": 1,
+        "event_id": "evt_rp_001",
+        "order_id": "order_rp_001"
+      }
+    },
+    {
+      "status_code": 201,
+      "expected_status": 201,
+      "status_ok": true,
+      "body": {
+        "shipment_id": 1,
+        "event_id": "evt_rp_001",
+        "order_id": "order_rp_001"
+      }
+    }
+  ],
+  "observation": {
+    "type": "sqlite_count",
+    "query": "SELECT COUNT(*) FROM shipments WHERE event_id = ?",
+    "params": [
+      "evt_rp_001"
+    ],
+    "expected_before": 0,
+    "expected_after": 1,
+    "actual_after": 1,
+    "passed": true
+  },
+  "controls": [
+    {
+      "label": "distinct_event_creates_own_row",
+      "response": {
+        "status_code": 201,
+        "expected_status": 201,
+        "status_ok": true,
+        "body": {
+          "shipment_id": 6,
+          "event_id": "evt_rp_ctrl_001",
+          "order_id": "order_rp_ctrl_001"
+        }
+      },
+      "observation": {
+        "type": "sqlite_count",
+        "query": "SELECT COUNT(*) FROM shipments WHERE event_id = ?",
+        "params": [
+          "evt_rp_ctrl_001"
+        ],
+        "expected_before": null,
+        "expected_after": 1,
+        "actual_after": 1,
+        "passed": true
+      },
+      "result": "PASS"
+    }
+  ],
+  "result": "PASS"
+}
