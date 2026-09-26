@@ -1,157 +1,164 @@
 """
-test_verifier.py — Tests for the RetryProof verifier module.
+Tests for the RetryProof verifier.
 
-These tests verify that the verifier itself works correctly:
-  - the shipment-count helper reads the database accurately
-  - the control scenario (two distinct events) correctly reports PASS
-  - the verifier correctly DETECTS the duplicate-delivery bug and reports FAIL
-  - the evidence JSON file is written with the expected structure
+These tests validate the verifier infrastructure itself.
 
-All of these tests should PASS on the Milestone 1 faulty baseline.
-The duplicate-delivery test does NOT assert that the app behaves correctly;
-it asserts that RetryProof correctly identifies the violation.
+Important:
+- pytest should PASS both before and after the application is repaired.
+- The standalone verifier is responsible for deciding whether the
+  application satisfies the retry-safety contract.
 """
 
 import json
 import os
 import sqlite3
 
-import pytest
 from fastapi.testclient import TestClient
 
-
-# ---------------------------------------------------------------------------
-# Helpers (mirrors verifier internals, used for direct DB inspection)
-# ---------------------------------------------------------------------------
 
 def _count_shipments(db_path: str) -> int:
     conn = sqlite3.connect(db_path)
     try:
-        return conn.execute("SELECT COUNT(*) FROM shipments").fetchone()[0]
+        return conn.execute(
+            "SELECT COUNT(*) FROM shipments"
+        ).fetchone()[0]
     finally:
         conn.close()
 
 
-# ---------------------------------------------------------------------------
-# Verifier unit tests
-# ---------------------------------------------------------------------------
-
 def test_verifier_count_helper(tmp_path):
-    """_count_shipments returns 0 on a freshly initialised database."""
+    """Shipment counting reads persisted SQLite state correctly."""
     from app.database import get_db
-    db_path = str(tmp_path / "v_test.db")
+
+    db_path = str(tmp_path / "count_test.db")
+
     conn = get_db(db_path)
     conn.close()
+
     assert _count_shipments(db_path) == 0
 
 
-def test_verifier_control_scenario_passes(tmp_path):
+def test_control_distinct_events_create_two_shipments(tmp_path):
     """
-    Two distinct events delivered once each must produce exactly 2 shipments.
-    The control scenario must PASS on both the buggy and the fixed build.
+    Two genuinely different valid events must create two shipments.
+
+    This must remain true both before and after the idempotency repair.
     """
     from app.main import app
 
-    db_path = str(tmp_path / "ctrl.db")
+    db_path = str(tmp_path / "control.db")
     os.environ["TEST_DB_PATH"] = db_path
+
     try:
         with TestClient(app) as client:
-            client.post(
+            response_1 = client.post(
                 "/events/order-confirmed",
-                json={"event_id": "evt_A", "event_type": "order.confirmed", "order_id": "ord_A"},
+                json={
+                    "event_id": "evt_A",
+                    "event_type": "order.confirmed",
+                    "order_id": "order_A",
+                },
             )
-            client.post(
+
+            response_2 = client.post(
                 "/events/order-confirmed",
-                json={"event_id": "evt_B", "event_type": "order.confirmed", "order_id": "ord_B"},
+                json={
+                    "event_id": "evt_B",
+                    "event_type": "order.confirmed",
+                    "order_id": "order_B",
+                },
             )
+
+        assert response_1.status_code == 201
+        assert response_2.status_code == 201
         assert _count_shipments(db_path) == 2
+
     finally:
         os.environ.pop("TEST_DB_PATH", None)
 
 
-def test_verifier_detects_duplicate_shipments(tmp_path):
+def test_run_verification_writes_consistent_evidence(tmp_path, monkeypatch):
     """
-    RetryProof must correctly DETECT the duplicate-delivery violation.
+    The verifier must write a valid evidence document whose verdicts
+    agree with the observed shipment counts.
 
-    On the Milestone 1 faulty baseline, 5 deliveries of the same event_id
-    produce 5 rows — not 1.  This test asserts that RetryProof observes the
-    violation (actual_count > 1), not that the app avoids it.
+    This test intentionally does NOT require the application to be
+    either faulty or fixed.
     """
-    from app.main import app
+    import verifier.verify_idempotency as verifier
 
-    db_path = str(tmp_path / "dup.db")
-    os.environ["TEST_DB_PATH"] = db_path
-    try:
-        with TestClient(app) as client:
-            for _ in range(5):
-                client.post(
-                    "/events/order-confirmed",
-                    json={
-                        "event_id": "evt_1001",
-                        "event_type": "order.confirmed",
-                        "order_id": "order_1001",
-                    },
-                )
-        actual = _count_shipments(db_path)
-        # RetryProof should observe more than 1 shipment — that is the violation.
-        assert actual > 1, (
-            f"Expected the faulty app to create > 1 shipment for 5 duplicate "
-            f"deliveries, but found {actual}.  The intentional bug may have been "
-            f"inadvertently fixed."
+    evidence_dir = tmp_path / "evidence"
+    evidence_file = evidence_dir / "idempotency_report.json"
+
+    monkeypatch.setattr(
+        verifier,
+        "EVIDENCE_DIR",
+        evidence_dir,
+    )
+    monkeypatch.setattr(
+        verifier,
+        "EVIDENCE_FILE",
+        evidence_file,
+    )
+
+    result = verifier.run_verification()
+
+    assert evidence_file.exists()
+
+    with open(evidence_file, encoding="utf-8") as file:
+        saved = json.load(file)
+
+    # Basic evidence structure
+    assert saved["tool"] == "RetryProof"
+    assert saved["milestone"] == 1
+    assert "timestamp" in saved
+    assert "overall_result" in saved
+    assert isinstance(saved["scenarios"], list)
+
+    duplicate = next(
+        scenario
+        for scenario in saved["scenarios"]
+        if scenario["label"] == "duplicate_deliveries"
+    )
+
+    control = next(
+        scenario
+        for scenario in saved["scenarios"]
+        if scenario["label"] == "control_distinct_events"
+    )
+
+    # Retry-safety contract must always remain unchanged.
+    assert duplicate["deliveries"] == 5
+    assert duplicate["expected_shipment_count"] == 1
+
+    # Verify the verdict is derived from the real observed count.
+    expected_duplicate_result = (
+        "PASS"
+        if duplicate["actual_shipment_count"]
+        == duplicate["expected_shipment_count"]
+        else "FAIL"
+    )
+
+    assert duplicate["result"] == expected_duplicate_result
+
+    # The control contract is always:
+    # two distinct events -> two legitimate shipments.
+    assert control["deliveries"] == 2
+    assert control["expected_shipment_count"] == 2
+    assert control["actual_shipment_count"] == 2
+    assert control["result"] == "PASS"
+
+    # Overall result must correspond to all scenario results.
+    expected_overall = (
+        "PASS"
+        if all(
+            scenario["result"] == "PASS"
+            for scenario in saved["scenarios"]
         )
-    finally:
-        os.environ.pop("TEST_DB_PATH", None)
-
-
-def test_run_verification_writes_evidence(tmp_path, monkeypatch):
-    """
-    run_verification() must write a well-formed evidence JSON file and
-    must report FAIL on the duplicate_deliveries scenario (Milestone 1).
-    """
-    import verifier.verify_idempotency as v_module
-
-    fake_evidence_dir = tmp_path / "evidence"
-    fake_evidence_file = fake_evidence_dir / "idempotency_report.json"
-
-    monkeypatch.setattr(v_module, "EVIDENCE_DIR", fake_evidence_dir)
-    monkeypatch.setattr(v_module, "EVIDENCE_FILE", fake_evidence_file)
-
-    evidence = v_module.run_verification()
-
-    # Evidence file must exist
-    assert fake_evidence_file.exists(), "Evidence file was not created"
-
-    # Re-read from disk to verify serialisation round-trip
-    with open(fake_evidence_file) as f:
-        data = json.load(f)
-
-    # Structure checks
-    assert data["milestone"] == 1
-    assert data["tool"] == "RetryProof"
-    assert "timestamp" in data
-    assert "scenarios" in data
-    assert "overall_result" in data
-
-    # Duplicate scenario must be identified as FAIL
-    dup_scenario = next(
-        (s for s in data["scenarios"] if s["label"] == "duplicate_deliveries"),
-        None,
-    )
-    assert dup_scenario is not None, "duplicate_deliveries scenario missing from evidence"
-    assert dup_scenario["result"] == "FAIL", (
-        "Verifier should report FAIL for duplicate_deliveries on the Milestone 1 build"
-    )
-    assert dup_scenario["actual_shipment_count"] > dup_scenario["expected_shipment_count"], (
-        "Evidence should show actual > expected shipments for the duplicate scenario"
+        else "FAIL"
     )
 
-    # Control scenario must be identified as PASS
-    ctrl_scenario = next(
-        (s for s in data["scenarios"] if s["label"] == "control_distinct_events"),
-        None,
-    )
-    assert ctrl_scenario is not None, "control_distinct_events scenario missing from evidence"
-    assert ctrl_scenario["result"] == "PASS"
+    assert saved["overall_result"] == expected_overall
 
-    # Overall result must be FAIL (because duplicate scenario failed)
-    assert data["overall_result"] == "FAIL"
+    # The returned object and saved evidence should agree.
+    assert result["overall_result"] == saved["overall_result"]
