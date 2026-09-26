@@ -10,30 +10,34 @@ Scenario schema
 {
   "scenario_name": str,
   "target": {
-    "base_url": str          # e.g. "http://localhost:8000"
+    "base_url": str           # e.g. "http://localhost:8000"
   },
   "request": {
-    "method": str,           # "POST", "GET", …
-    "path": str,             # e.g. "/events/order-confirmed"
-    "body": object | null    # JSON body (optional)
+    "method": str,            # "POST", "GET", …
+    "path": str,              # e.g. "/events/order-confirmed"
+    "body": object | null,    # JSON body (optional)
+    "expected_status": int    # required — HTTP status every delivery must return
   },
   "retry": {
-    "deliveries": int        # total number of HTTP deliveries (>= 1)
+    "deliveries": int         # total number of HTTP deliveries (>= 1)
   },
   "observation": {
     "type": "sqlite_count",
-    "database": str,         # path to SQLite file
-    "query": str,            # SQL that returns a single scalar
-    "params": array,         # positional parameters for the query
-    "expected": int | str | float
+    "database": str,          # path to SQLite file
+    "query": str,             # SQL returning a single scalar
+    "params": array,          # positional parameters for the query
+    "expected_before": any,   # required — value expected BEFORE any deliveries
+    "expected": any           # required — value expected AFTER all deliveries
   },
-  "controls": [              # optional list of control requests
+  "controls": [               # optional list of control requests
     {
       "label": str,
       "method": str,
       "path": str,
       "body": object | null,
-      "observation": { ... } # same shape as top-level observation
+      "expected_status": int, # optional — defaults to None (not checked)
+      "observation": { ... }  # same shape as top-level observation
+                              # (expected_before is optional for controls)
     }
   ]
 }
@@ -54,11 +58,12 @@ from typing import Any
 
 @dataclass
 class ObservationSpec:
-    type: str          # currently only "sqlite_count"
+    type: str              # currently only "sqlite_count"
     database: str
     query: str
     params: list[Any]
     expected: Any
+    expected_before: Any   # None means "no precondition check"
 
 
 @dataclass
@@ -67,6 +72,7 @@ class ControlSpec:
     method: str
     path: str
     body: Any
+    expected_status: int | None   # None means HTTP status is not asserted
     observation: ObservationSpec
 
 
@@ -77,6 +83,7 @@ class Scenario:
     method: str
     path: str
     body: Any
+    expected_status: int          # every delivery must return this HTTP status
     deliveries: int
     observation: ObservationSpec
     controls: list[ControlSpec]
@@ -88,8 +95,15 @@ class Scenario:
 # Parsing helpers
 # ---------------------------------------------------------------------------
 
-def _parse_observation(data: dict[str, Any], context: str) -> ObservationSpec:
-    for key in ("type", "database", "query", "params", "expected"):
+def _parse_observation(
+    data: dict[str, Any],
+    context: str,
+    require_expected_before: bool = True,
+) -> ObservationSpec:
+    required = ["type", "database", "query", "params", "expected"]
+    if require_expected_before:
+        required.append("expected_before")
+    for key in required:
         if key not in data:
             raise ValueError(
                 f"Scenario observation ({context}) is missing required key: '{key}'"
@@ -110,6 +124,7 @@ def _parse_observation(data: dict[str, Any], context: str) -> ObservationSpec:
         query=data["query"],
         params=data["params"],
         expected=data["expected"],
+        expected_before=data.get("expected_before"),
     )
 
 
@@ -120,12 +135,22 @@ def _parse_control(raw: dict[str, Any], index: int) -> ControlSpec:
             raise ValueError(
                 f"Control entry {context} is missing required key: '{key}'"
             )
+    # expected_status for controls is optional
+    expected_status: int | None = raw.get("expected_status")
+    if expected_status is not None and not isinstance(expected_status, int):
+        raise ValueError(
+            f"controls[{index}].expected_status must be an integer if present."
+        )
     return ControlSpec(
         label=raw["label"],
         method=raw["method"].upper(),
         path=raw["path"],
         body=raw.get("body"),
-        observation=_parse_observation(raw["observation"], context),
+        expected_status=expected_status,
+        # Controls don't require expected_before
+        observation=_parse_observation(
+            raw["observation"], context, require_expected_before=False
+        ),
     )
 
 
@@ -161,9 +186,12 @@ def load(path: str | Path) -> Scenario:
 
     # request
     req = data["request"]
-    for key in ("method", "path"):
+    for key in ("method", "path", "expected_status"):
         if key not in req:
             raise ValueError(f"Scenario request is missing required key: '{key}'")
+    expected_status = req["expected_status"]
+    if not isinstance(expected_status, int):
+        raise ValueError("request.expected_status must be an integer.")
 
     # retry
     retry = data["retry"]
@@ -173,7 +201,7 @@ def load(path: str | Path) -> Scenario:
     if not isinstance(deliveries, int) or deliveries < 1:
         raise ValueError("retry.deliveries must be an integer >= 1.")
 
-    # observation
+    # observation (primary — requires expected_before)
     observation = _parse_observation(data["observation"], "observation")
 
     # controls (optional)
@@ -187,6 +215,7 @@ def load(path: str | Path) -> Scenario:
         method=req["method"].upper(),
         path=req["path"],
         body=req.get("body"),
+        expected_status=expected_status,
         deliveries=deliveries,
         observation=observation,
         controls=controls,

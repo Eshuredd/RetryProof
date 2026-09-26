@@ -6,6 +6,7 @@
   "request": {
     "method": "POST",
     "path": "/events/order-confirmed",
+    "expected_status": 201,
     "body": {
       "event_id": "evt_rp_001",
       "event_type": "order.confirmed",
@@ -20,6 +21,7 @@
     "database": "demo_retryproof.db",
     "query": "SELECT COUNT(*) FROM shipments WHERE event_id = ?",
     "params": ["evt_rp_001"],
+    "expected_before": 0,
     "expected": 1
   },
   "controls": [
@@ -27,6 +29,7 @@
       "label": "distinct_event_creates_own_row",
       "method": "POST",
       "path": "/events/order-confirmed",
+      "expected_status": 201,
       "body": {
         "event_id": "evt_rp_ctrl_001",
         "event_type": "order.confirmed",
