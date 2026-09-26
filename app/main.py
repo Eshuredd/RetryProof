@@ -17,7 +17,9 @@ demonstration and will be fixed in a later milestone.
 import os
 import sqlite3
 
-from fastapi import FastAPI, Request
+from typing import Literal
+
+from fastapi import FastAPI
 from pydantic import BaseModel
 
 from app.database import DEFAULT_DB_PATH, get_db
@@ -39,7 +41,7 @@ def _db_path() -> str:
 
 class OrderConfirmedEvent(BaseModel):
     event_id: str
-    event_type: str
+    event_type: Literal["order.confirmed"]
     order_id: str
 
 
