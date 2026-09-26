@@ -1,0 +1,44 @@
+{
+  "scenario_name": "order_confirmed_idempotency",
+  "target": {
+    "base_url": "http://localhost:8000"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/events/order-confirmed",
+    "body": {
+      "event_id": "evt_rp_001",
+      "event_type": "order.confirmed",
+      "order_id": "order_rp_001"
+    }
+  },
+  "retry": {
+    "deliveries": 5
+  },
+  "observation": {
+    "type": "sqlite_count",
+    "database": "demo_retryproof.db",
+    "query": "SELECT COUNT(*) FROM shipments WHERE event_id = ?",
+    "params": ["evt_rp_001"],
+    "expected": 1
+  },
+  "controls": [
+    {
+      "label": "distinct_event_creates_own_row",
+      "method": "POST",
+      "path": "/events/order-confirmed",
+      "body": {
+        "event_id": "evt_rp_ctrl_001",
+        "event_type": "order.confirmed",
+        "order_id": "order_rp_ctrl_001"
+      },
+      "observation": {
+        "type": "sqlite_count",
+        "database": "demo_retryproof.db",
+        "query": "SELECT COUNT(*) FROM shipments WHERE event_id = ?",
+        "params": ["evt_rp_ctrl_001"],
+        "expected": 1
+      }
+    }
+  ]
+}
