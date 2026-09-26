@@ -1,0 +1,84 @@
+{
+  "tool": "RetryProof",
+  "milestone": 1,
+  "timestamp": "2026-09-26T10:02:50.144862+00:00",
+  "overall_result": "PASS",
+  "scenarios": [
+    {
+      "label": "duplicate_deliveries",
+      "event_id": "evt_1001",
+      "order_id": "order_1001",
+      "deliveries": 5,
+      "expected_shipment_count": 1,
+      "actual_shipment_count": 1,
+      "result": "PASS",
+      "responses": [
+        {
+          "status_code": 201,
+          "body": {
+            "shipment_id": 1,
+            "event_id": "evt_1001",
+            "order_id": "order_1001"
+          }
+        },
+        {
+          "status_code": 201,
+          "body": {
+            "shipment_id": 1,
+            "event_id": "evt_1001",
+            "order_id": "order_1001"
+          }
+        },
+        {
+          "status_code": 201,
+          "body": {
+            "shipment_id": 1,
+            "event_id": "evt_1001",
+            "order_id": "order_1001"
+          }
+        },
+        {
+          "status_code": 201,
+          "body": {
+            "shipment_id": 1,
+            "event_id": "evt_1001",
+            "order_id": "order_1001"
+          }
+        },
+        {
+          "status_code": 201,
+          "body": {
+            "shipment_id": 1,
+            "event_id": "evt_1001",
+            "order_id": "order_1001"
+          }
+        }
+      ]
+    },
+    {
+      "label": "control_distinct_events",
+      "deliveries": 2,
+      "expected_shipment_count": 2,
+      "actual_shipment_count": 2,
+      "result": "PASS",
+      "responses": [
+        {
+          "status_code": 201,
+          "body": {
+            "shipment_id": 1,
+            "event_id": "evt_2001",
+            "order_id": "order_2001"
+          }
+        },
+        {
+          "status_code": 201,
+          "body": {
+            "shipment_id": 2,
+            "event_id": "evt_2002",
+            "order_id": "order_2002"
+          }
+        }
+      ]
+    }
+  ]
+}
