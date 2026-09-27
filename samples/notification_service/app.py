@@ -38,9 +38,11 @@ def create_app(database_path: str | None = None) -> Flask:
         conn = get_db(app.config["DATABASE_PATH"])
 
         try:
-            cursor = conn.execute(
+            # INSERT OR IGNORE silently skips duplicate message_id values,
+            # making the endpoint idempotent against retries.
+            conn.execute(
                 """
-                INSERT INTO email_jobs (
+                INSERT OR IGNORE INTO email_jobs (
                     message_id,
                     recipient,
                     message
@@ -55,7 +57,14 @@ def create_app(database_path: str | None = None) -> Flask:
             )
 
             conn.commit()
-            job_id = cursor.lastrowid
+
+            # Fetch the canonical row whether it was just inserted or already
+            # existed from an earlier delivery.
+            row = conn.execute(
+                "SELECT id FROM email_jobs WHERE message_id = ?",
+                (body["message_id"],),
+            ).fetchone()
+            job_id = row["id"]
 
         finally:
             conn.close()

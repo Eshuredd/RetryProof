@@ -28,11 +28,28 @@ def init_db(path: str | None = None) -> None:
             """
             CREATE TABLE IF NOT EXISTS email_jobs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                message_id TEXT NOT NULL,
+                message_id TEXT NOT NULL UNIQUE,
                 recipient TEXT NOT NULL,
                 message TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
+            """
+        )
+        # For databases created before the UNIQUE constraint was introduced,
+        # remove duplicate message_id rows (keeping the earliest id) so the
+        # unique index can always be created successfully.
+        conn.execute(
+            """
+            DELETE FROM email_jobs
+            WHERE id NOT IN (
+                SELECT MIN(id) FROM email_jobs GROUP BY message_id
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_email_jobs_message_id
+            ON email_jobs (message_id)
             """
         )
         conn.commit()
