@@ -1,0 +1,1 @@
+"""Intentionally retry-unsafe notification service used by RetryProof."""

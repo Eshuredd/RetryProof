@@ -1,0 +1,47 @@
+{
+  "scenario_name": "notification_send_idempotency",
+  "target": {
+    "base_url": "http://localhost:8001"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/notifications/send",
+    "expected_status": 201,
+    "body": {
+      "message_id": "msg_rp_001",
+      "recipient": "demo@example.com",
+      "message": "Your report is ready"
+    }
+  },
+  "retry": {
+    "deliveries": 5
+  },
+  "observation": {
+    "type": "sqlite_count",
+    "database": "notification_demo.db",
+    "query": "SELECT COUNT(*) FROM email_jobs WHERE message_id = ?",
+    "params": ["msg_rp_001"],
+    "expected_before": 0,
+    "expected": 1
+  },
+  "controls": [
+    {
+      "label": "distinct_message_creates_own_job",
+      "method": "POST",
+      "path": "/notifications/send",
+      "expected_status": 201,
+      "body": {
+        "message_id": "msg_rp_ctrl_001",
+        "recipient": "demo@example.com",
+        "message": "Control message"
+      },
+      "observation": {
+        "type": "sqlite_count",
+        "database": "notification_demo.db",
+        "query": "SELECT COUNT(*) FROM email_jobs WHERE message_id = ?",
+        "params": ["msg_rp_ctrl_001"],
+        "expected": 1
+      }
+    }
+  ]
+}
