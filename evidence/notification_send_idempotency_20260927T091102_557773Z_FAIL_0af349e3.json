@@ -1,0 +1,115 @@
+{
+  "scenario_name": "notification_send_idempotency",
+  "scenario_sha256": "0af349e3d17312be5b8faa265e614c60ea40b448a11615157b0367999dde9e98",
+  "scenario_path": "scenarios\\notification_send.json",
+  "timestamp": "2026-09-27T09:11:02.557773+00:00",
+  "target": "http://localhost:8001",
+  "request": {
+    "method": "POST",
+    "path": "/notifications/send",
+    "expected_status": 201,
+    "body": {
+      "message_id": "msg_rp_001",
+      "recipient": "demo@example.com",
+      "message": "Your report is ready"
+    }
+  },
+  "deliveries": 5,
+  "precondition": {
+    "expected_before": 0,
+    "actual_before": 0,
+    "passed": true,
+    "skipped": false
+  },
+  "delivery_log": [
+    {
+      "status_code": 201,
+      "expected_status": 201,
+      "status_ok": true,
+      "body": {
+        "job_id": 1,
+        "message_id": "msg_rp_001",
+        "recipient": "demo@example.com"
+      }
+    },
+    {
+      "status_code": 201,
+      "expected_status": 201,
+      "status_ok": true,
+      "body": {
+        "job_id": 2,
+        "message_id": "msg_rp_001",
+        "recipient": "demo@example.com"
+      }
+    },
+    {
+      "status_code": 201,
+      "expected_status": 201,
+      "status_ok": true,
+      "body": {
+        "job_id": 3,
+        "message_id": "msg_rp_001",
+        "recipient": "demo@example.com"
+      }
+    },
+    {
+      "status_code": 201,
+      "expected_status": 201,
+      "status_ok": true,
+      "body": {
+        "job_id": 4,
+        "message_id": "msg_rp_001",
+        "recipient": "demo@example.com"
+      }
+    },
+    {
+      "status_code": 201,
+      "expected_status": 201,
+      "status_ok": true,
+      "body": {
+        "job_id": 5,
+        "message_id": "msg_rp_001",
+        "recipient": "demo@example.com"
+      }
+    }
+  ],
+  "observation": {
+    "type": "sqlite_count",
+    "query": "SELECT COUNT(*) FROM email_jobs WHERE message_id = ?",
+    "params": [
+      "msg_rp_001"
+    ],
+    "expected_before": 0,
+    "expected_after": 1,
+    "actual_after": 5,
+    "passed": false
+  },
+  "controls": [
+    {
+      "label": "distinct_message_creates_own_job",
+      "response": {
+        "status_code": 201,
+        "expected_status": 201,
+        "status_ok": true,
+        "body": {
+          "job_id": 6,
+          "message_id": "msg_rp_ctrl_001",
+          "recipient": "demo@example.com"
+        }
+      },
+      "observation": {
+        "type": "sqlite_count",
+        "query": "SELECT COUNT(*) FROM email_jobs WHERE message_id = ?",
+        "params": [
+          "msg_rp_ctrl_001"
+        ],
+        "expected_before": null,
+        "expected_after": 1,
+        "actual_after": 1,
+        "passed": true
+      },
+      "result": "PASS"
+    }
+  ],
+  "result": "FAIL"
+}
